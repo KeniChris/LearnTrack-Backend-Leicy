@@ -41,7 +41,6 @@ services:
       # CORS - URL del frontend en Netlify
       - key: CORS_ALLOWED_ORIGINS
         value: "https://jocular-zuccutto-17b498.netlify.app"
-        sync: false
 
       # Configuración de Spring JPA
       - key: SPRING_JPA_HIBERNATE_DDL_AUTO
