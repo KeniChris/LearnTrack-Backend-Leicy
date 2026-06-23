@@ -19,15 +19,16 @@ public class AuthController {
     private final AuthService authService;
 
     @PostMapping("/register")
-    public ResponseEntity<String> register(@Valid @RequestBody RegisterRequestDto request) {
+    public ResponseEntity<Map<String, String>> register(@Valid @RequestBody RegisterRequestDto request) {
         String token = authService.register(request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(token);
+        return ResponseEntity.status(HttpStatus.CREATED).body(Map.of("token", token));
     }
 
     @PostMapping("/login")
-    public ResponseEntity<String> login(@Valid @RequestBody LoginRequestDto request) {
+    public ResponseEntity<Map<String, String>> login(@Valid @RequestBody LoginRequestDto request) {
         String token = authService.login(request);
-        return ResponseEntity.ok(token);
+        // Envolvemos el token en un Map para que Spring Boot lo envíe como {"token": "eyJhbG..."}
+        return ResponseEntity.ok(Map.of("token", token));
     }
 
     @PostMapping("/refresh")
