@@ -5,14 +5,12 @@ import com.upc.learntrack.iam.dto.RegisterRequestDto;
 import com.upc.learntrack.iam.service.AuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
-@Slf4j
 @RestController
 @RequestMapping("/api/v1/auth")
 @RequiredArgsConstructor
@@ -28,23 +26,17 @@ public class AuthController {
 
     @PostMapping("/login")
     public ResponseEntity<Map<String, String>> login(@Valid @RequestBody LoginRequestDto request) {
-        long start = System.currentTimeMillis();
-        log.info("[AUTH] LOGIN START email={}", request.getEmail());
+        String token = authService.login(request);
+        return ResponseEntity.ok(Map.of("token", token));
+    }
 
-        try {
-            String token = authService.login(request);
+    @PostMapping("/refresh")
+    public ResponseEntity<Map<String, String>> refresh() {
+        return ResponseEntity.ok(Map.of("message", "Refresh endpoint pendiente de implementación real con BD"));
+    }
 
-            log.info("[AUTH] LOGIN OK email={} time={}ms", request.getEmail(), System.currentTimeMillis() - start);
-
-            return ResponseEntity.ok(Map.of("token", token));
-        } catch (Exception e) {
-            log.error("[AUTH] LOGIN FAIL email={} time={}ms error={}",
-                    request.getEmail(),
-                    System.currentTimeMillis() - start,
-                    e.getMessage(),
-                    e
-            );
-            throw e;
-        }
+    @PostMapping("/logout")
+    public ResponseEntity<Map<String, String>> logout() {
+        return ResponseEntity.ok(Map.of("message", "Sesión cerrada en backend. (El frontend debe eliminar el token)"));
     }
 }
