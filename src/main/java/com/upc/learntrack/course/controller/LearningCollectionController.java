@@ -26,8 +26,11 @@ public class LearningCollectionController {
     private final GroupService groupService;
 
     @GetMapping
-    public ResponseEntity<List<LearningCollectionDto>> findAll() {
-        return ResponseEntity.ok(learningCollectionService.findAll());
+    @PreAuthorize("hasAuthority('DOCENTE')")
+    public ResponseEntity<List<LearningCollectionDto>> findAll(Principal principal) {
+        return ResponseEntity.ok(
+                learningCollectionService.findAllMyCollections(principal.getName())
+        );
     }
 
     @GetMapping("/mine")
