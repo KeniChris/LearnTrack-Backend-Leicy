@@ -1,15 +1,29 @@
 package com.upc.learntrack.course.service.impl;
 
 import com.upc.learntrack.course.dto.TopicDto;
+import com.upc.learntrack.course.exception.GroupNotFoundException;
 import com.upc.learntrack.course.exception.LearningCollectionNotFoundException;
 import com.upc.learntrack.course.exception.StudentNotFoundException;
 import com.upc.learntrack.course.exception.TeacherNotFoundException;
 import com.upc.learntrack.course.exception.TopicNotFoundException;
 import com.upc.learntrack.course.mapper.TopicMapper;
-import com.upc.learntrack.course.model.*;
-import com.upc.learntrack.course.repository.*;
+import com.upc.learntrack.course.model.Group;
+import com.upc.learntrack.course.model.GroupTopicId;
+import com.upc.learntrack.course.model.GroupTopicPriority;
+import com.upc.learntrack.course.model.LearningCollection;
+import com.upc.learntrack.course.model.Student;
+import com.upc.learntrack.course.model.Teacher;
+import com.upc.learntrack.course.model.Topic;
+import com.upc.learntrack.course.repository.EnrollmentRepository;
+import com.upc.learntrack.course.repository.GroupRepository;
+import com.upc.learntrack.course.repository.GroupTopicPriorityRepository;
+import com.upc.learntrack.course.repository.LearningCollectionRepository;
+import com.upc.learntrack.course.repository.StudentRepository;
+import com.upc.learntrack.course.repository.TeacherRepository;
+import com.upc.learntrack.course.repository.TopicRepository;
 import com.upc.learntrack.course.service.TopicService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,8 +31,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
-import com.upc.learntrack.course.exception.GroupNotFoundException;
-import com.upc.learntrack.course.repository.GroupRepository;
 
 @Service
 @RequiredArgsConstructor
@@ -35,21 +47,17 @@ public class TopicServiceImpl implements TopicService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<TopicDto> findAllByCollectionName(String collectionName, String teacherEmail) {
-        LearningCollection collection;
-        if (teacherEmail != null) {
-            Teacher teacher = teacherRepository.findByUserEmail(teacherEmail).orElse(null);
-            if (teacher != null) {
-                collection = learningCollectionRepository.findByNameAndTeacherId(collectionName, teacher.getId())
-                        .orElseThrow(() -> new LearningCollectionNotFoundException("Colección no encontrada: " + collectionName));
-            } else {
-                collection = learningCollectionRepository.findByName(collectionName)
-                        .orElseThrow(() -> new LearningCollectionNotFoundException("Colección no encontrada: " + collectionName));
-            }
-        } else {
-            collection = learningCollectionRepository.findByName(collectionName)
-                    .orElseThrow(() -> new LearningCollectionNotFoundException("Colección no encontrada: " + collectionName));
+    public List<TopicDto> findAllByCollectionId(Long collectionId, String teacherEmail) {
+        Teacher teacher = teacherRepository.findByUserEmail(teacherEmail)
+                .orElseThrow(() -> new TeacherNotFoundException("Docente no encontrado: " + teacherEmail));
+
+        LearningCollection collection = learningCollectionRepository.findById(collectionId)
+                .orElseThrow(() -> new LearningCollectionNotFoundException("Colección no encontrada con ID: " + collectionId));
+
+        if (!collection.getTeacher().getId().equals(teacher.getId())) {
+            throw new AccessDeniedException("No tienes permiso para ver los temas de esta colección");
         }
+
         return topicRepository.findAllByLearningCollectionIdOrderByOrderIdxAsc(collection.getId()).stream()
                 .map(topicMapper::toDto)
                 .collect(Collectors.toList());
@@ -60,24 +68,33 @@ public class TopicServiceImpl implements TopicService {
     public TopicDto findById(Long id) {
         Topic topic = topicRepository.findById(id)
                 .orElseThrow(() -> new TopicNotFoundException("Tema no encontrado con ID: " + id));
+
         return topicMapper.toDto(topic);
     }
 
     @Override
     @Transactional
-    public TopicDto save(String collectionName, TopicDto dto, String teacherEmail) {
+    public TopicDto save(Long collectionId, TopicDto dto, String teacherEmail) {
         Teacher teacher = teacherRepository.findByUserEmail(teacherEmail)
                 .orElseThrow(() -> new TeacherNotFoundException("Docente no encontrado: " + teacherEmail));
-        LearningCollection collection = learningCollectionRepository
-                .findByNameAndTeacherId(collectionName, teacher.getId())
-                .orElseThrow(() -> new LearningCollectionNotFoundException("Colección no encontrada: " + collectionName));
+
+        LearningCollection collection = learningCollectionRepository.findById(collectionId)
+                .orElseThrow(() -> new LearningCollectionNotFoundException("Colección no encontrada con ID: " + collectionId));
+
+        if (!collection.getTeacher().getId().equals(teacher.getId())) {
+            throw new AccessDeniedException("No tienes permiso para crear temas en esta colección");
+        }
+
         if (topicRepository.existsByNameAndLearningCollectionId(dto.getName(), collection.getId())) {
             throw new IllegalArgumentException("Ya existe un tema con el nombre '" + dto.getName() + "' en esta colección.");
         }
+
         Topic topic = topicMapper.toEntity(dto);
         topic.setLearningCollection(collection);
+
         int existingTopics = topicRepository.findAllByLearningCollectionId(collection.getId()).size();
         topic.setOrderIdx(existingTopics);
+
         return topicMapper.toDto(topicRepository.save(topic));
     }
 
@@ -94,16 +111,27 @@ public class TopicServiceImpl implements TopicService {
     public List<TopicDto> findPrioritizedTopicsForStudent(String studentEmail) {
         Student student = studentRepository.findByUserEmail(studentEmail)
                 .orElseThrow(() -> new StudentNotFoundException("Estudiante no encontrado con email: " + studentEmail));
+
         List<Long> groupIds = enrollmentRepository.findAllByStudentId(student.getId()).stream()
                 .map(e -> e.getGroup().getId())
                 .collect(Collectors.toList());
-        if (groupIds.isEmpty()) return Collections.emptyList();
+
+        if (groupIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+
         List<GroupTopicPriority> priorities = groupTopicPriorityRepository.findAllByGroupIdInAndPriorityTrue(groupIds);
+
         Set<Long> topicIds = priorities.stream()
                 .map(p -> p.getId().getTopicId())
                 .collect(Collectors.toSet());
-        if (topicIds.isEmpty()) return Collections.emptyList();
+
+        if (topicIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+
         List<Topic> topics = topicRepository.findAllById(topicIds);
+
         return topics.stream()
                 .map(topicMapper::toDto)
                 .collect(Collectors.toList());
@@ -114,21 +142,25 @@ public class TopicServiceImpl implements TopicService {
     public TopicDto update(Long id, TopicDto dto, String teacherEmail) {
         Topic topic = topicRepository.findById(id)
                 .orElseThrow(() -> new TopicNotFoundException("Tema no encontrado con ID: " + id));
+
         Teacher teacher = teacherRepository.findByUserEmail(teacherEmail)
                 .orElseThrow(() -> new TeacherNotFoundException("Docente no encontrado"));
+
         if (!topic.getLearningCollection().getTeacher().getId().equals(teacher.getId())) {
-            throw new SecurityException("No tienes permiso para modificar este tema");
+            throw new AccessDeniedException("No tienes permiso para modificar este tema");
         }
-        // Verificar nombre duplicado (excepto sí mismo)
+
         if (!topic.getName().equals(dto.getName()) &&
                 topicRepository.existsByNameAndLearningCollectionId(dto.getName(), topic.getLearningCollection().getId())) {
             throw new IllegalArgumentException("Ya existe un tema con el nombre '" + dto.getName() + "' en esta colección.");
         }
+
         topic.setName(dto.getName());
-        // No se modifica orderIdx normalmente, pero se podría permitir
+
         if (dto.getOrderIdx() != null) {
             topic.setOrderIdx(dto.getOrderIdx());
         }
+
         return topicMapper.toDto(topicRepository.save(topic));
     }
 
@@ -137,11 +169,14 @@ public class TopicServiceImpl implements TopicService {
     public void delete(Long id, String teacherEmail) {
         Topic topic = topicRepository.findById(id)
                 .orElseThrow(() -> new TopicNotFoundException("Tema no encontrado con ID: " + id));
+
         Teacher teacher = teacherRepository.findByUserEmail(teacherEmail)
                 .orElseThrow(() -> new TeacherNotFoundException("Docente no encontrado"));
+
         if (!topic.getLearningCollection().getTeacher().getId().equals(teacher.getId())) {
-            throw new SecurityException("No tienes permiso para eliminar este tema");
+            throw new AccessDeniedException("No tienes permiso para eliminar este tema");
         }
+
         topicRepository.delete(topic);
     }
 
@@ -150,11 +185,14 @@ public class TopicServiceImpl implements TopicService {
     public List<TopicDto> findVisibleTopicsForGroup(String collectionName, Long groupId, String userEmail) {
         LearningCollection collection = learningCollectionRepository.findByName(collectionName)
                 .orElseThrow(() -> new LearningCollectionNotFoundException("Colección no encontrada: " + collectionName));
+
         Group group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new GroupNotFoundException("Grupo no encontrado con ID: " + groupId));
+
         if (!group.getLearningCollection().getId().equals(collection.getId())) {
             throw new IllegalArgumentException("El grupo no pertenece a esta colección.");
         }
+
         return topicRepository.findVisibleTopicsForGroup(collection.getId(), groupId).stream()
                 .map(topicMapper::toDto)
                 .collect(Collectors.toList());
@@ -165,22 +203,36 @@ public class TopicServiceImpl implements TopicService {
     public void assignTopicToGroups(Long topicId, List<Long> groupIds, String teacherEmail) {
         Topic topic = topicRepository.findById(topicId)
                 .orElseThrow(() -> new TopicNotFoundException("Tema no encontrado con ID: " + topicId));
+
         Teacher teacher = teacherRepository.findByUserEmail(teacherEmail)
                 .orElseThrow(() -> new TeacherNotFoundException("Docente no encontrado"));
+
         if (!topic.getLearningCollection().getTeacher().getId().equals(teacher.getId())) {
-            throw new SecurityException("No tienes permiso para modificar este tema");
+            throw new AccessDeniedException("No tienes permiso para modificar este tema");
         }
-        // Eliminar restricciones previas
+
         List<GroupTopicPriority> existing = groupTopicPriorityRepository.findAllByTopicId(topicId);
         groupTopicPriorityRepository.deleteAll(existing);
 
-        // Si groupIds está vacío → sin restricciones (aplica a todos)
+        if (groupIds == null || groupIds.isEmpty()) {
+            return;
+        }
+
         for (Long groupId : groupIds) {
+            Group group = groupRepository.findById(groupId)
+                    .orElseThrow(() -> new GroupNotFoundException("Grupo no encontrado con ID: " + groupId));
+
+            if (!group.getLearningCollection().getId().equals(topic.getLearningCollection().getId())) {
+                throw new IllegalArgumentException("El grupo con ID " + groupId + " no pertenece a la colección del tema.");
+            }
+
             GroupTopicId id = new GroupTopicId(groupId, topicId);
+
             GroupTopicPriority gtp = new GroupTopicPriority();
             gtp.setId(id);
             gtp.setAssigned(true);
             gtp.setPriority(false);
+
             groupTopicPriorityRepository.save(gtp);
         }
     }
