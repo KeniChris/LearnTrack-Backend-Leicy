@@ -48,11 +48,13 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // Endpoints públicos
                         .requestMatchers(
+                                "/api/v1/health",
                                 "/api/v1/auth/**",
                                 "/api/v1/admin/verify-code",   // Verificación de código (público)
                                 "/error",
                                 "/swagger-ui/**",
                                 "/v3/api-docs/**"
+
                         ).permitAll()
                         // Endpoints de administración (solo rol ADMIN)
                         .requestMatchers("/api/v1/admin/**").hasAuthority("ADMIN")
